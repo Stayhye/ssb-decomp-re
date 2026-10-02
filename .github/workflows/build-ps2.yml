@@ -1,20 +1,15 @@
-name: Build ROM
+name: Build N64 Decompilation
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "develop" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "develop" ]
 
 jobs:
   build:
-    name: Build (${{ matrix.version }})
+    name: Build ROM (US)
     runs-on: ubuntu-latest
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        version: [us] # Add 'jp' if desired when ready
 
     steps:
       - name: Checkout repository
@@ -25,37 +20,53 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install system dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            git \
-            libglib2.0-dev \
             pkg-config \
-            python3-pip \
-            python3-dev \
+            git \
             clang \
-            binutils-mips-linux-gnu
+            binutils-mips-linux-gnu \
+            libglib2.0-dev
 
-      - name: Install Python requirements
+      - name: Install Python Dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pyyaml watchdog # commonly used in splat/n64 decomp toolchains
+          python3 -m pip install --upgrade pip
+          pip install pyyaml capstone lark mapfile-parser
+
+      - name: Setup Toolchain & Dependencies
+        run: |
+          if [ -f installDependencies.sh ]; then
+            bash installDependencies.sh
+          fi
 
       - name: Provide Baserom
         env:
-          BASEROM_BASE64: ${{ secrets.BASEROM_US }} # Optional: if stored in GitHub Secrets
+          BASEROM_BASE64: ${{ secrets.BASEROM_US_Z64 }}
         run: |
-          # If you store your baserom as a base64 secret, decode it here:
-          # echo "$BASEROM_BASE64" | base64 --decode > baserom.${{ matrix.version }}.z64
-          
-          # Alternatively, ensure your baserom is tracked or provided via LFS/secrets.
-          ls -la baserom.${{ matrix.version }}.z64 || echo "Warning: Baserom not found yet."
+          if [ -n "$BASEROM_BASE64" ]; then
+            echo "$BASEROM_BASE64" | base64 --decode > baserom.us.z64
+            echo "Baserom successfully decoded from GitHub Secrets."
+          else
+            echo "Warning: No baserom secret found. Creating a dummy placeholder for compilation testing."
+            # Note: A real ROM is required for a successful matching comparison target.
+            touch baserom.us.z64
+          fi
 
-      - name: Build ROM
+      - name: Build ROM (US Region)
         run: |
-          make VERSION=${{ matrix.version }} -j$(nproc)
+          make VERSION=us -j$(nproc)
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: smashbrothers-us-rom
+          path: |
+            build/smashbrothers.us.z64
+            build/smashbrothers.us.elf
+            build/smashbrothers.us.map
